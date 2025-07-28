@@ -1,6 +1,6 @@
 # TikTok AI Analyzer
 
-This project is a full-stack application that uses AI to analyze TikTok videos. The backend is built with FastAPI and the frontend is a React application.
+This project is an AI-powered video analyzer that provides a detailed analysis of a video from its URL. It currently supports both TikTok and Douyin. The backend is built with FastAPI and the frontend is a React application.
 
 ## Local Development Setup
 
@@ -54,3 +54,5 @@ Follow these instructions to run both the backend and frontend servers locally.
     npm run dev
     ```
     The frontend will be running at `http://localhost:5173` (or the next available port).
+
+curl -X POST -F "video=@backend/test/test-vid1.mp4" http://127.0.0.1:8000/analyze-upload

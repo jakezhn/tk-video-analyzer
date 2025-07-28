@@ -63,3 +63,4 @@ backend/temp_storage/
 
 # Specific to this project
 backend/.env
+test/

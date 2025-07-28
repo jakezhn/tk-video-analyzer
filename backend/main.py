@@ -1,15 +1,16 @@
 import asyncio
 import uuid
 import os
+import shutil
 from typing import Dict
 
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Request
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 
-from analyzer import run_analysis_pipeline
+from analyzer import run_analysis_pipeline, _run_analysis_on_local_file
 
 app = FastAPI()
 
@@ -53,8 +54,9 @@ sse_manager = SSEManager()
 if not os.path.exists(TEMP_STORAGE_PATH):
     os.makedirs(TEMP_STORAGE_PATH)
 
-# --- Analysis Pipeline Wrapper ---
+# --- Analysis Pipeline Wrappers ---
 async def run_analysis_and_notify(job_id: str, url: str):
+    """Wrapper for URL-based analysis."""
     try:
         await run_analysis_pipeline(job_id, url)
         await sse_manager.send_event(job_id, "complete")
@@ -62,11 +64,44 @@ async def run_analysis_and_notify(job_id: str, url: str):
         print(f"Error in job {job_id}: {e}")
         await sse_manager.send_event(job_id, "error")
 
+async def run_local_file_analysis_and_notify(job_id: str, video_path: str):
+    """Wrapper for local file analysis."""
+    try:
+        await _run_analysis_on_local_file(job_id, video_path)
+        await sse_manager.send_event(job_id, "complete")
+    except Exception as e:
+        print(f"Error in job {job_id}: {e}")
+        await sse_manager.send_event(job_id, "error")
+
+
 # --- API Endpoints ---
 @app.post("/analyze")
-async def analyze_video(request: AnalyzeRequest, background_tasks: BackgroundTasks):
+async def analyze_video_url(request: AnalyzeRequest, background_tasks: BackgroundTasks):
+    """Analyzes a video from a URL."""
     job_id = str(uuid.uuid4())
+    # Create the job directory immediately to prevent race conditions
+    os.makedirs(os.path.join(TEMP_STORAGE_PATH, job_id), exist_ok=True)
     background_tasks.add_task(run_analysis_and_notify, job_id, request.url)
+    return {"job_id": job_id}
+
+@app.post("/analyze-upload")
+async def analyze_video_upload(background_tasks: BackgroundTasks, video: UploadFile = File(...) ):
+    """Analyzes a video from an uploaded file."""
+    job_id = str(uuid.uuid4())
+    job_dir = os.path.join(TEMP_STORAGE_PATH, job_id)
+    os.makedirs(job_dir, exist_ok=True)
+
+    # Save the uploaded file to the job directory.
+    # Using a consistent name like 'video.mp4' simplifies downstream processing.
+    video_path = os.path.join(job_dir, "video.mp4")
+
+    try:
+        with open(video_path, "wb") as buffer:
+            shutil.copyfileobj(video.file, buffer)
+    finally:
+        video.file.close()
+    
+    background_tasks.add_task(run_local_file_analysis_and_notify, job_id, video_path)
     return {"job_id": job_id}
 
 @app.get("/stream/{job_id}")
